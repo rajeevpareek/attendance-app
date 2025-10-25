@@ -1,0 +1,7 @@
+{
+  "name": "Site-Sync Attendance",
+  "description": "A simple, reliable attendance and job-site location tracking app for field staff. It allows users to clock in and out, capturing their geolocation for accurate record-keeping.",
+  "requestFramePermissions": [
+    "geolocation"
+  ]
+}
