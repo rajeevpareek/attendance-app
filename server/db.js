@@ -1,3 +1,4 @@
+
 import bcrypt from 'bcryptjs';
 import { UserRole } from '../types';
 
@@ -27,10 +28,9 @@ const MOCK_PROJECTS = [
 // Initialization Logic
 // ====================================================================================
 
-let isInitialized = false;
-export const initializeData = async () => {
-    if (isInitialized) return;
-    
+let initializationPromise = null;
+
+const performInitialization = async () => {
     // Hash pins and store users
     DB.users = await Promise.all(MOCK_USERS_RAW.map(async (user) => {
         const pinHash = await bcrypt.hash(user.pin, 10);
@@ -46,20 +46,36 @@ export const initializeData = async () => {
     DB.projects = MOCK_PROJECTS;
     DB.attendance = [];
     
-    isInitialized = true;
     console.log("In-memory database initialized and seeded.");
 };
 
+/**
+ * Ensures that the database is initialized.
+ * This function creates a single promise on the first call and returns it on all subsequent calls,
+ * guaranteeing the initialization logic runs only once.
+ * @returns {Promise<void>}
+ */
+export const ensureInitialized = () => {
+    if (!initializationPromise) {
+        initializationPromise = performInitialization();
+    }
+    return initializationPromise;
+};
+
+
 // ====================================================================================
 // Data Access Functions (Exports)
+// Every function now awaits initialization to ensure safety.
 // ====================================================================================
 
 // --- Users ---
 export const findUserByPhone = async (phone) => {
+    await ensureInitialized();
     return DB.users.find(u => u.phone === phone) || null;
 }
 
 export const findUserById = async (id) => {
+    await ensureInitialized();
     const user = DB.users.find(u => u.id === id);
     if (!user) return null;
     // eslint-disable-next-line @typescript-eslint/no-unused-vars
@@ -69,11 +85,13 @@ export const findUserById = async (id) => {
 
 // --- Projects ---
 export const getProjects = async () => {
+    await ensureInitialized();
     return DB.projects;
 }
 
 // --- Attendance ---
 export const getAttendanceRecords = async () => {
+    await ensureInitialized();
     // Enhance records with names, like a server-side JOIN would
     return DB.attendance.map(rec => {
         const staff = DB.users.find(u => u.id === rec.userId);
@@ -87,14 +105,17 @@ export const getAttendanceRecords = async () => {
 }
 
 export const findActiveRecordByUserId = async (userId) => {
+    await ensureInitialized();
     return DB.attendance.find(r => r.userId === userId && r.outTime === null) || null;
 }
 
 export const findRecordById = async (recordId) => {
+    await ensureInitialized();
     return DB.attendance.find(r => r.id === recordId) || null;
 }
 
 export const createAttendanceRecord = async ({ userId, projectId, coordinates }) => {
+    await ensureInitialized();
     const newRecord = {
         id: `rec_${userId}_${Date.now()}`,
         userId,
@@ -109,6 +130,7 @@ export const createAttendanceRecord = async ({ userId, projectId, coordinates })
 }
 
 export const updateAttendanceRecord = async ({ recordId, coordinates }) => {
+    await ensureInitialized();
     let updatedRecord = null;
     DB.attendance = DB.attendance.map(rec => {
         if (rec.id === recordId) {

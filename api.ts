@@ -1,9 +1,7 @@
+
 import { type AttendanceRecord, type Coordinates, type Project, type User, UserRole } from './types';
 import * as db from './server/db';
 import * as auth from './server/auth';
-
-// Initialize the database on first load
-db.initializeData();
 
 // ====================================================================================
 // Authentication
