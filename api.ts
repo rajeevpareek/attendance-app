@@ -1,84 +1,117 @@
-import { type AttendanceRecord, type Coordinates } from './types';
+import { type AttendanceRecord, type Coordinates, type Project, type User, UserRole } from './types';
+import * as db from './server/db';
+import * as auth from './server/auth';
 
-// In-memory array to simulate a database
-let MOCK_ATTENDANCE_DB: AttendanceRecord[] = [];
+// Initialize the database on first load
+db.initializeData();
 
-// Simulate network delay
-const API_DELAY = 500;
+// ====================================================================================
+// Authentication
+// ====================================================================================
+
+const getToken = (): string | null => {
+    return localStorage.getItem('authToken');
+}
 
 /**
- * Fetches all attendance records.
- * @returns A promise that resolves to an array of all attendance records.
+ * Logs a user in by calling the backend, which validates credentials.
+ * On success, it returns the user object and a JWT.
  */
-export const getAttendanceRecords = async (): Promise<AttendanceRecord[]> => {
-  return new Promise(resolve => {
-    setTimeout(() => {
-      // Return a deep copy to prevent direct mutation
-      resolve(JSON.parse(JSON.stringify(MOCK_ATTENDANCE_DB)));
-    }, API_DELAY);
-  });
+export const login = async (phone: string, pin: string): Promise<{ user: User, token: string }> => {
+    const userWithPin = await db.findUserByPhone(phone);
+    if (!userWithPin) {
+        throw new Error('Invalid phone number or PIN.');
+    }
+
+    const isMatch = await auth.comparePin(pin, userWithPin.pinHash);
+    if (!isMatch) {
+        throw new Error('Invalid phone number or PIN.');
+    }
+
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    const { pinHash, ...safeUser } = userWithPin;
+    const token = await auth.generateToken(safeUser);
+
+    return { user: safeUser, token };
 };
 
 /**
- * Fetches the currently active (not clocked out) record for a specific user.
- * @param userId The ID of the user.
- * @returns A promise that resolves to the active attendance record, or null if none is found.
+ * Gets the currently logged-in user's data by validating their token.
  */
-export const getActiveRecordForUser = async (userId: number): Promise<AttendanceRecord | null> => {
-    return new Promise(resolve => {
-        setTimeout(() => {
-            const record = MOCK_ATTENDANCE_DB.find(rec => rec.userId === userId && rec.outTime === null);
-            resolve(record ? { ...record } : null);
-        }, API_DELAY);
-    });
+export const getSelf = async (): Promise<User | null> => {
+    const token = getToken();
+    if (!token) return null;
+
+    try {
+        const payload = await auth.verifyToken(token);
+        // The payload contains the full user object we put in it
+        return payload as User;
+    } catch (error) {
+        console.error("Token verification failed", error);
+        throw new Error("Session expired. Please log in again.");
+    }
+};
+
+// ====================================================================================
+// Projects API
+// ====================================================================================
+
+export const getProjects = async (): Promise<Project[]> => {
+    await getSelf(); // Acts as an authentication check
+    return db.getProjects();
 };
 
 
+// ====================================================================================
+// Attendance API
+// ====================================================================================
+
 /**
- * Creates a new "Clock In" attendance record.
- * @param userId The ID of the user clocking in.
- * @param projectId The ID of the project selected.
- * @param coordinates The geolocation coordinates at clock-in.
- * @returns A promise that resolves to the newly created attendance record.
+ * Fetches all attendance records (Admin only).
  */
-export const clockIn = async (userId: number, projectId: number, coordinates: Coordinates): Promise<AttendanceRecord> => {
-    return new Promise(resolve => {
-        setTimeout(() => {
-            const newRecord: AttendanceRecord = {
-                id: `rec_${userId}_${new Date().getTime()}`,
-                userId,
-                projectId,
-                inTime: new Date().toISOString(),
-                outTime: null,
-                inCoordinates: coordinates,
-                outCoordinates: null,
-            };
-            MOCK_ATTENDANCE_DB.push(newRecord);
-            resolve({ ...newRecord });
-        }, API_DELAY);
-    });
+export const getAttendanceRecords = async (): Promise<any[]> => {
+    const user = await getSelf();
+    if (user?.role !== UserRole.ADMIN) {
+        throw new Error("Access denied.");
+    }
+    return db.getAttendanceRecords();
 };
 
 /**
- * Updates an existing record to "Clock Out".
- * @param recordId The ID of the record to update.
- * @param coordinates The geolocation coordinates at clock-out.
- * @returns A promise that resolves to the updated attendance record.
+ * Finds the currently active (not clocked out) record for the logged-in user.
  */
-export const clockOut = async (recordId: string, coordinates: Coordinates): Promise<AttendanceRecord | null> => {
-    return new Promise((resolve, reject) => {
-        setTimeout(() => {
-            const recordIndex = MOCK_ATTENDANCE_DB.findIndex(rec => rec.id === recordId);
-            if (recordIndex !== -1) {
-                MOCK_ATTENDANCE_DB[recordIndex] = {
-                    ...MOCK_ATTENDANCE_DB[recordIndex],
-                    outTime: new Date().toISOString(),
-                    outCoordinates: coordinates,
-                };
-                resolve({ ...MOCK_ATTENDANCE_DB[recordIndex] });
-            } else {
-                reject(new Error("Record not found."));
-            }
-        }, API_DELAY);
-    });
+export const getActiveRecordForUser = async (): Promise<AttendanceRecord | null> => {
+    const user = await getSelf();
+    if (!user) throw new Error("Not authenticated");
+    return db.findActiveRecordByUserId(user.id);
+};
+
+/**
+ * Creates a new attendance record for a clock-in event.
+ */
+export const clockIn = async (projectId: number, coordinates: Coordinates): Promise<AttendanceRecord> => {
+    const user = await getSelf();
+    if (!user) throw new Error("Not authenticated");
+    
+    const activeRecord = await db.findActiveRecordByUserId(user.id);
+    if (activeRecord) {
+        throw new Error('User is already clocked in.');
+    }
+    
+    return db.createAttendanceRecord({ userId: user.id, projectId, coordinates });
+};
+
+/**
+ * Updates an existing attendance record for a clock-out event.
+ */
+export const clockOut = async (recordId: string, coordinates: Coordinates): Promise<AttendanceRecord> => {
+    const user = await getSelf();
+    if (!user) throw new Error("Not authenticated");
+
+    const record = await db.findRecordById(recordId);
+    if (!record || record.userId !== user.id) {
+        throw new Error('Active record not found or permission denied.');
+    }
+
+    return db.updateAttendanceRecord({ recordId, coordinates });
 };

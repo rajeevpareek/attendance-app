@@ -1,36 +1,58 @@
-
 import React, { useState, useEffect, useCallback } from 'react';
 import LoginScreen from './components/LoginScreen';
 import StaffDashboard from './components/StaffDashboard';
 import AdminDashboard from './components/AdminDashboard';
 import { type User, UserRole } from './types';
-import { MOCK_USERS } from './constants';
+import * as api from './api';
+import LoadingSpinner from './components/LoadingSpinner';
+
+interface LoginData {
+  user: User;
+  token: string;
+}
 
 const App: React.FC = () => {
   const [currentUser, setCurrentUser] = useState<User | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
 
-  useEffect(() => {
-    // Persist login state across page reloads
-    const loggedInUserId = sessionStorage.getItem('loggedInUserId');
-    if (loggedInUserId) {
-      const user = MOCK_USERS.find(u => u.id === parseInt(loggedInUserId));
-      if (user) {
+  const checkSession = useCallback(async () => {
+    const token = localStorage.getItem('authToken');
+    if (token) {
+      try {
+        const user = await api.getSelf();
         setCurrentUser(user);
+      } catch (error) {
+        console.error("Session token is invalid, logging out.", error);
+        localStorage.removeItem('authToken');
+        setCurrentUser(null);
       }
     }
+    setIsLoading(false);
   }, []);
 
-  const handleLoginSuccess = useCallback((user: User) => {
+  useEffect(() => {
+    checkSession();
+  }, [checkSession]);
+
+  const handleLoginSuccess = useCallback(({ user, token }: LoginData) => {
+    localStorage.setItem('authToken', token);
     setCurrentUser(user);
-    sessionStorage.setItem('loggedInUserId', user.id.toString());
   }, []);
 
   const handleLogout = useCallback(() => {
+    localStorage.removeItem('authToken');
     setCurrentUser(null);
-    sessionStorage.removeItem('loggedInUserId');
   }, []);
 
   const renderContent = () => {
+    if (isLoading) {
+      return (
+        <div className="flex h-screen items-center justify-center">
+          <LoadingSpinner />
+        </div>
+      );
+    }
+
     if (!currentUser) {
       return <LoginScreen onLoginSuccess={handleLoginSuccess} />;
     }
@@ -41,6 +63,7 @@ const App: React.FC = () => {
       case UserRole.ADMIN:
         return <AdminDashboard user={currentUser} onLogout={handleLogout} />;
       default:
+        // This case should ideally not be reached if currentUser is set
         return <LoginScreen onLoginSuccess={handleLoginSuccess} />;
     }
   };

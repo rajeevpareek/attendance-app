@@ -1,7 +1,6 @@
-import React, { useState, useEffect, useCallback } from 'react';
-import { type User } from '../types';
+import React, { useState, useEffect } from 'react';
+import { type User, Project } from '../types';
 import { useGeolocation } from '../hooks/useGeolocation';
-import { MOCK_PROJECTS } from '../constants';
 import * as api from '../api';
 import LoadingSpinner from './LoadingSpinner';
 import Clock from './Clock';
@@ -14,16 +13,24 @@ interface StaffDashboardProps {
 const StaffDashboard: React.FC<StaffDashboardProps> = ({ user, onLogout }) => {
   const [isClockedIn, setIsClockedIn] = useState(false);
   const [currentRecordId, setCurrentRecordId] = useState<string | null>(null);
-  const [selectedProjectId, setSelectedProjectId] = useState<number | null>(MOCK_PROJECTS[0]?.id || null);
+  const [projects, setProjects] = useState<Project[]>([]);
+  const [selectedProjectId, setSelectedProjectId] = useState<number | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [isInitializing, setIsInitializing] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const { getGeolocation, loading: geoLoading } = useGeolocation();
 
   useEffect(() => {
-    const fetchUserStatus = async () => {
+    const fetchInitialData = async () => {
         try {
-            const activeRecord = await api.getActiveRecordForUser(user.id);
+            // Fetch projects and user status in parallel
+            const [activeRecord, fetchedProjects] = await Promise.all([
+                api.getActiveRecordForUser(),
+                api.getProjects()
+            ]);
+
+            setProjects(fetchedProjects);
+
             if (activeRecord) {
                 setIsClockedIn(true);
                 setCurrentRecordId(activeRecord.id);
@@ -31,15 +38,19 @@ const StaffDashboard: React.FC<StaffDashboardProps> = ({ user, onLogout }) => {
             } else {
                 setIsClockedIn(false);
                 setCurrentRecordId(null);
+                // Set default project if not clocked in
+                if (fetchedProjects.length > 0) {
+                    setSelectedProjectId(fetchedProjects[0].id);
+                }
             }
-        } catch (e) {
-            setError("Could not fetch current status. Please try again later.");
+        } catch (e: any) {
+            setError(e.message || "Could not fetch current status. Please try again later.");
         } finally {
             setIsInitializing(false);
         }
     };
-    fetchUserStatus();
-  }, [user.id]);
+    fetchInitialData();
+  }, []);
   
   const handleClockInOut = async () => {
     setError(null);
@@ -65,7 +76,7 @@ const StaffDashboard: React.FC<StaffDashboardProps> = ({ user, onLogout }) => {
         setIsClockedIn(false);
         setCurrentRecordId(null);
       } else if (!isClockedIn && selectedProjectId) { // Clocking In
-        const newRecord = await api.clockIn(user.id, selectedProjectId, coordinates);
+        const newRecord = await api.clockIn(selectedProjectId, coordinates);
         setIsClockedIn(true);
         setCurrentRecordId(newRecord.id);
       }
@@ -124,8 +135,8 @@ const StaffDashboard: React.FC<StaffDashboardProps> = ({ user, onLogout }) => {
                 disabled={isClockedIn}
                 className="w-full p-3 bg-gray-700 border border-gray-600 rounded-lg focus:ring-blue-500 focus:border-blue-500 disabled:opacity-50"
             >
-                <option value="" disabled>Select a project</option>
-                {MOCK_PROJECTS.map(p => (
+                {projects.length === 0 && <option>Loading projects...</option>}
+                {projects.map(p => (
                     <option key={p.id} value={p.id}>{p.name}</option>
                 ))}
             </select>

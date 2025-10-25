@@ -1,6 +1,5 @@
-import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { type User, type AttendanceRecord, Coordinates } from '../types';
-import { MOCK_USERS, MOCK_PROJECTS } from '../constants';
 import * as api from '../api';
 import LoadingSpinner from './LoadingSpinner';
 
@@ -9,8 +8,14 @@ interface AdminDashboardProps {
   onLogout: () => void;
 }
 
+// The backend now provides staffName and projectName with each record.
+interface EnhancedAttendanceRecord extends AttendanceRecord {
+    staffName: string;
+    projectName: string;
+}
+
 const AdminDashboard: React.FC<AdminDashboardProps> = ({ user, onLogout }) => {
-  const [records, setRecords] = useState<AttendanceRecord[]>([]);
+  const [records, setRecords] = useState<EnhancedAttendanceRecord[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -19,12 +24,12 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ user, onLogout }) => {
     setError(null);
     try {
         const storedRecords = await api.getAttendanceRecords();
-        // Sort by most recent first
+        // The backend should ideally sort, but we can sort here as a fallback.
         storedRecords.sort((a, b) => new Date(b.inTime).getTime() - new Date(a.inTime).getTime());
-        setRecords(storedRecords);
-    } catch(e) {
+        setRecords(storedRecords as EnhancedAttendanceRecord[]);
+    } catch(e: any) {
         console.error("Failed to load records", e);
-        setError("Could not load attendance data. Please try again later.");
+        setError(e.message || "Could not load attendance data. Please try again later.");
         setRecords([]);
     } finally {
         setIsLoading(false);
@@ -35,17 +40,6 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ user, onLogout }) => {
     loadData();
   }, [loadData]);
 
-  const enhancedRecords = useMemo(() => {
-    return records.map(rec => {
-      const staff = MOCK_USERS.find(u => u.id === rec.userId);
-      const project = MOCK_PROJECTS.find(p => p.id === rec.projectId);
-      return {
-        ...rec,
-        staffName: staff?.name || 'Unknown User',
-        projectName: project?.name || 'Unassigned',
-      };
-    });
-  }, [records]);
 
   const formatDateTime = (isoString: string | null) => {
     if (!isoString) return 'N/A';
@@ -88,7 +82,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ user, onLogout }) => {
           );
       }
 
-      if (enhancedRecords.length === 0) {
+      if (records.length === 0) {
           return (
               <tr>
                   <td colSpan={7} className="px-6 py-12 text-center text-gray-400">No attendance records found.</td>
@@ -96,7 +90,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ user, onLogout }) => {
           );
       }
 
-      return enhancedRecords.map(rec => (
+      return records.map(rec => (
         <tr key={rec.id} className="hover:bg-gray-700/50">
           <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-white">{rec.staffName}</td>
           <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-300">{rec.projectName}</td>

@@ -1,27 +1,29 @@
-
 import React, { useState, useCallback } from 'react';
 import { type User } from '../types';
-import { MOCK_USERS } from '../constants';
+import * as api from '../api';
 
 interface LoginScreenProps {
-  onLoginSuccess: (user: User) => void;
+  onLoginSuccess: (data: { user: User; token: string }) => void;
 }
 
 const LoginScreen: React.FC<LoginScreenProps> = ({ onLoginSuccess }) => {
   const [phone, setPhone] = useState('');
   const [pin, setPin] = useState('');
   const [error, setError] = useState<string | null>(null);
+  const [isLoading, setIsLoading] = useState(false);
 
-  const handleLogin = useCallback((e: React.FormEvent) => {
+  const handleLogin = useCallback(async (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
+    setIsLoading(true);
 
-    const user = MOCK_USERS.find(u => u.phone === phone && u.pin === pin);
-
-    if (user) {
-      onLoginSuccess(user);
-    } else {
-      setError('Invalid phone number or PIN. Please try again.');
+    try {
+      const { user, token } = await api.login(phone, pin);
+      onLoginSuccess({ user, token });
+    } catch (err: any) {
+      setError(err.message || 'Invalid phone number or PIN. Please try again.');
+    } finally {
+      setIsLoading(false);
     }
   }, [phone, pin, onLoginSuccess]);
 
@@ -42,6 +44,7 @@ const LoginScreen: React.FC<LoginScreenProps> = ({ onLoginSuccess }) => {
                 placeholder="1112223333"
                 className="block w-full px-4 py-3 mt-2 text-white bg-gray-700 border border-gray-600 rounded-md focus:border-blue-400 focus:ring-blue-300 focus:ring-opacity-40 focus:outline-none focus:ring"
                 required
+                disabled={isLoading}
               />
             </div>
             <div>
@@ -55,11 +58,12 @@ const LoginScreen: React.FC<LoginScreenProps> = ({ onLoginSuccess }) => {
                 placeholder="••••"
                 className="block w-full px-4 py-3 mt-2 text-white bg-gray-700 border border-gray-600 rounded-md focus:border-blue-400 focus:ring-blue-300 focus:ring-opacity-40 focus:outline-none focus:ring"
                 required
+                disabled={isLoading}
               />
             </div>
             {error && <p className="text-sm text-red-400">{error}</p>}
-            <button type="submit" className="w-full px-4 py-3 text-lg font-semibold text-white transition-colors duration-300 transform bg-blue-600 rounded-md hover:bg-blue-500 focus:outline-none focus:bg-blue-500">
-              Sign In
+            <button type="submit" className="w-full px-4 py-3 text-lg font-semibold text-white transition-colors duration-300 transform bg-blue-600 rounded-md hover:bg-blue-500 focus:outline-none focus:bg-blue-500 disabled:bg-blue-800" disabled={isLoading}>
+              {isLoading ? 'Signing In...' : 'Sign In'}
             </button>
           </form>
         </div>

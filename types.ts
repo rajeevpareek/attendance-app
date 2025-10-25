@@ -8,7 +8,7 @@ export interface User {
   id: number;
   name: string;
   phone: string;
-  pin: string;
+  // PIN is removed for security. Frontend should not hold this.
   role: UserRole;
 }
 
